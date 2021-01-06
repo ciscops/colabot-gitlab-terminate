@@ -2,14 +2,28 @@ import logging
 import json
 import datetime
 import re
-import time
 import urllib3
-from config import DefaultConfig as CONFIG
+import os
 
 import boto3
 
 FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.INFO)
+
+
+class CONFIG:
+    K8S_TOKEN = os.environ.get('K8S_TOKEN', 'xxxx')
+    K8S_CLUSTER = os.environ.get('K8S_CLUSTER', 'abc12345')
+    AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+    AWS_KEY = os.environ.get('AWS_KEY', 'xxxx')
+    AWS_SECRET = os.environ.get('AWS_SECRET', 'xxxx')
+    AWX_SERVER = os.environ.get('AWX_SERVER', 'xxxx')
+    AWX_USERNAME = os.environ.get('AWX_USERNAME', '')
+    AWX_PASSWORD = os.environ.get('AWX_PASSWORD', '')
+    AWX_TERMINATE_GITLAB_JOB = os.environ.get('AWX_TERMINATE_GITLAB_JOB', '')
+    WEBEX_BEARER = os.environ.get('WEBEX_BEARER', '')
+    DAYS_BEFORE_WARNINGS = os.environ.get('DAYS_BEFORE_WARNINGS', '7')
+    DAYS_OF_WARNINGS = os.environ.get('DAYS_OF_WARNINGS', '7')
 
 
 def get_k8s_deployments() -> dict:
@@ -32,7 +46,8 @@ def parse_k8s_deployments_for_colab_gitlab(deployments: dict) -> dict:
     try:
         for k in deployments['items']:
             if re.search(r'gitlab-.+-gitlab-shell', k['metadata']['name']):
-                username = k['metadata']['name'].lstrip('gitlab-').rstrip('-gitlab-shell')
+                username = k['metadata']['name'].replace('-gitlab-shell', '')
+                username = username.replace('gitlab-', '')
                 results_dict[username] = k['metadata']['creationTimestamp']
         return results_dict
     except Exception as e:
@@ -43,9 +58,7 @@ def parse_k8s_deployments_for_colab_gitlab(deployments: dict) -> dict:
 def get_dynamo_records(table: str) -> list:
     try:
         dynamodb = boto3.resource('dynamodb',
-                                  region_name=CONFIG.AWS_REGION,
-                                  aws_access_key_id=CONFIG.AWS_KEY,
-                                  aws_secret_access_key=CONFIG.AWS_SECRET)
+                                  region_name=CONFIG.AWS_REGION)
         table = dynamodb.Table(table)
         response = table.scan()
         items = response['Items']
@@ -69,9 +82,7 @@ def compare_dynamo_to_k8s_users(dynamo_items: list, k8s_users_ages: dict) -> lis
 def delete_dynamo_entry(table: str, record: str):
     try:
         dynamodb = boto3.resource('dynamodb',
-                                  region_name=CONFIG.AWS_REGION,
-                                  aws_access_key_id=CONFIG.AWS_KEY,
-                                  aws_secret_access_key=CONFIG.AWS_SECRET)
+                                  region_name=CONFIG.AWS_REGION)
         table = dynamodb.Table(table)
         table.delete_item(Key={
             'username': record
@@ -137,9 +148,7 @@ def send_webex_message(email: str, message: str) -> bool:
 def update_dynamo_db(record: dict):
     try:
         dynamodb_client = boto3.client('dynamodb',
-                                       region_name=CONFIG.AWS_REGION,
-                                       aws_access_key_id=CONFIG.AWS_KEY,
-                                       aws_secret_access_key=CONFIG.AWS_SECRET)
+                                       region_name=CONFIG.AWS_REGION)
         dynamodb_client.put_item(
             TableName='colab_gitlab',
             Item={
@@ -206,28 +215,29 @@ def parse_gitlab_users_for_messaging_and_termination(dynamo_items: list):
                     update_dynamo_db(item)
 
 
-if __name__ == '__main__':
-    while True:
-        k8s_deployments = get_k8s_deployments()
-        if not k8s_deployments:
-            logging.info('Error connecting to kubernetes cluster...')
-            exit(1)
-        deployed_gitlabs = parse_k8s_deployments_for_colab_gitlab(k8s_deployments)
-        if not deployed_gitlabs:
-            logging.info('No labs. Exiting...')
-            exit()
-        dynamo_gitlab_list = get_dynamo_records(table='colab_gitlab')
-        if not dynamo_gitlab_list:
-            logging.info('No dynamo list to work with...')
-            exit()
-        old_dynamo_entries = compare_dynamo_to_k8s_users(dynamo_gitlab_list, deployed_gitlabs)
+def lambda_handler(event, context):
+    k8s_deployments = get_k8s_deployments()
+    if not k8s_deployments:
+        logging.info('Error connecting to kubernetes cluster...')
+        exit(1)
+    deployed_gitlabs = parse_k8s_deployments_for_colab_gitlab(k8s_deployments)
+    if not deployed_gitlabs:
+        logging.info('No labs. Exiting...')
+        exit()
+    dynamo_gitlab_list = get_dynamo_records(table='colab_gitlab')
+    if not dynamo_gitlab_list:
+        logging.info('No dynamo list to work with...')
+        exit()
+    old_dynamo_entries = compare_dynamo_to_k8s_users(dynamo_gitlab_list, deployed_gitlabs)
+    print(old_dynamo_entries)
 
-        for entry in old_dynamo_entries:
-            delete_dynamo_entry(table='colab_gitlab', record=entry)
+    for entry in old_dynamo_entries:
+        delete_dynamo_entry(table='colab_gitlab', record=entry)
 
-        fresh_dynamo_gitlab_list = get_dynamo_records(table='colab_gitlab')
-        if not fresh_dynamo_gitlab_list:
-            logging.info('No dynamo list to work with...')
-            exit()
-        parse_gitlab_users_for_messaging_and_termination(fresh_dynamo_gitlab_list)
-        time.sleep(86400)
+    fresh_dynamo_gitlab_list = get_dynamo_records(table='colab_gitlab')
+    if not fresh_dynamo_gitlab_list:
+        logging.info('No dynamo list to work with...')
+        exit()
+    parse_gitlab_users_for_messaging_and_termination(fresh_dynamo_gitlab_list)
+
+    return {'statusCode': 200}

@@ -1,2 +1,1 @@
-Script to alert users of aging deployed gitlab resources, warn of terminating, and finally terminate deployments.
-
+AWS Lambda Script to alert users of aging deployed gitlab resources, warn of terminating, and finally terminate deployments.
