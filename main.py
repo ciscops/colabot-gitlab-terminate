@@ -209,10 +209,11 @@ def parse_gitlab_users_for_messaging_and_termination(dynamo_items: list):
                 days = int(seconds_left // 86400)
                 hours = int(seconds_left // 3600 % 24)
                 message = f'\n\n**Your cpn-workshops gitlab deployment will be terminated in {str(days)} days, {str(hours)} hours!** \n\n  Please use one of the following commands:\n  - ***Extend GitLab*** to extend for another 7 days \n  - ***Terminate GitLab*** command to free cluster resources. \n\n'
-                if send_webex_message(directory[item['username']], message):
-                    item['date_renewal_request_sent'] = epoch_time_to_timestamp(now_epoch)
-                    item['renewal_request_sent_count'] = str(int(item['renewal_request_sent_count']) + 1)
-                    update_dynamo_db(item)
+                if directory.get(item['username']):
+                    if send_webex_message(directory[item['username']], message):
+                        item['date_renewal_request_sent'] = epoch_time_to_timestamp(now_epoch)
+                        item['renewal_request_sent_count'] = str(int(item['renewal_request_sent_count']) + 1)
+                        update_dynamo_db(item)
 
 
 def lambda_handler(event, context):
