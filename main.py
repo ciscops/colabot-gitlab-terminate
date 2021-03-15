@@ -208,8 +208,10 @@ def parse_gitlab_users_for_messaging_and_termination(dynamo_items: list):
                 days = int(CONFIG.DAYS_OF_WARNINGS) - int(item['renewal_request_sent_count'])
                 if days != 1:
                     message = f'\n\n**Your cpn-workshops gitlab deployment will be terminated in {str(days)} days!** \n\n  Please use one of the following commands:\n  - ***Extend GitLab*** to extend for another 7 days \n  - ***Terminate GitLab*** command to free cluster resources. \n\n'
-                else:
+                elif days == 1:
                     message = f'\n\n**Your cpn-workshops gitlab deployment will be terminated in 1 day!** \n\n  Please use one of the following commands:\n  - ***Extend GitLab*** to extend for another 7 days \n  - ***Terminate GitLab*** command to free cluster resources. \n\n'
+                elif days == 0:
+                    message = f'\n\n**Your cpn-workshops gitlab deployment will be terminated soon!** \n\n  If desired, please quickly use command:\n  - ***Extend GitLab*** to extend for another 7 days \n\n'
                 if directory.get(item['username']):
                     if send_webex_message(directory[item['username']], message):
                         item['date_renewal_request_sent'] = epoch_time_to_timestamp(now_epoch)
